@@ -123,6 +123,9 @@ export default function App() {
     setImages(newImages);
   };
 
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+
   const handleReset = () => {
     if (confirm('确定要清空所有已上传的图片吗？')) {
       setImages(Array(6).fill(null));
@@ -131,6 +134,9 @@ export default function App() {
 
   const handleExport = async () => {
     try {
+      setIsExporting(true);
+      setExportProgress(5);
+      
       const canvas = document.createElement('canvas');
       canvas.width = 6480;
       canvas.height = 3840;
@@ -152,6 +158,7 @@ export default function App() {
         { x: 22.5, y: 8, w: 4.5, h: 8 }
       ];
 
+      // Stage 1: Rendering (0% - 40%)
       for (let i = 0; i < images.length; i++) {
         const cell = cells[i];
         const x = cell.x * unit;
@@ -168,7 +175,6 @@ export default function App() {
             img.onerror = reject;
           });
 
-          // Object-cover calculations
           const imgRatio = img.width / img.height;
           const cellRatio = w / h;
           let sx, sy, sw, sh;
@@ -186,24 +192,21 @@ export default function App() {
           }
 
           ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
-        } else {
-          // If no image, draw white (already done by background but explicit for clarity)
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(x, y, w, h);
         }
+        setExportProgress(5 + ((i + 1) / images.length) * 35);
       }
 
-      // Iterative Compression Logic for JPEG (Target: 13MB - 15MB)
-      const minSize = 13 * 1024 * 1024; // 13MB
-      const maxSize = 15 * 1024 * 1024; // 15MB
+      // Stage 2: Compression (40% - 95%)
+      const minSize = 13 * 1024 * 1024;
+      const maxSize = 15 * 1024 * 1024;
       
       let finalBlob: Blob | null = null;
       let q = 0.95;
       let low = 0.0;
       let high = 1.0;
+      const maxIterations = 8;
 
-      // Binary search for optimal quality
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < maxIterations; i++) {
         const blob: Blob = await new Promise((resolve) => {
           canvas.toBlob((b) => resolve(b!), 'image/jpeg', q);
         });
@@ -212,14 +215,14 @@ export default function App() {
           high = q;
         } else {
           finalBlob = blob;
-          if (blob.size >= minSize) break; // Found perfect range
+          if (blob.size >= minSize) break;
           low = q;
         }
         q = (low + high) / 2;
-        if (high - low < 0.01) break;
+        setExportProgress(40 + ((i + 1) / maxIterations) * 55);
+        if (high - low < 0.005) break;
       }
 
-      // Final attempt at max quality if still under limit
       if (finalBlob && finalBlob.size < minSize && high === 1.0) {
         const maxBlob: Blob = await new Promise((resolve) => {
           canvas.toBlob((b) => resolve(b!), 'image/jpeg', 1.0);
@@ -227,18 +230,26 @@ export default function App() {
         if (maxBlob.size <= maxSize) finalBlob = maxBlob;
       }
 
+      setExportProgress(100);
       if (!finalBlob) throw new Error('Could not generate image');
 
-      // Download
       const link = document.createElement('a');
-      link.download = `collage_${new Date().getTime()}.jpg`;
+      link.download = `stitch_${new Date().getTime()}.jpg`;
       const url = URL.createObjectURL(finalBlob);
       link.href = url;
       link.click();
       URL.revokeObjectURL(url);
+      
+      // Delay closing progress UI
+      setTimeout(() => {
+        setIsExporting(false);
+        setExportProgress(0);
+      }, 500);
+
     } catch (error) {
       console.error('Export failed:', error);
       alert('导出失败，请重试');
+      setIsExporting(false);
     }
   };
 
@@ -257,20 +268,71 @@ export default function App() {
         <div className="flex items-center gap-4">
           <button 
             onClick={handleReset}
-            className="px-4 py-2 text-sm font-medium text-gray-400 hover:text-red-500 transition-colors flex items-center gap-2"
+            disabled={isExporting}
+            className="px-4 py-2 text-sm font-medium text-gray-400 hover:text-red-500 transition-colors flex items-center gap-2 disabled:opacity-30 disabled:pointer-events-none"
           >
             <RotateCcw size={14} />
             清空画布
           </button>
           <button 
-            className="px-6 py-2 bg-black text-white text-sm font-semibold rounded-full hover:bg-zinc-800 transition-colors shadow-lg active:scale-95 flex items-center gap-2"
+            className="px-6 py-2 bg-black text-white text-sm font-semibold rounded-full hover:bg-zinc-800 transition-colors shadow-lg active:scale-95 flex items-center gap-2 disabled:bg-zinc-400 disabled:pointer-events-none"
             onClick={handleExport}
+            disabled={isExporting}
           >
-            <Download size={14} />
-            导出图片
+            {isExporting ? (
+              <>
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+                >
+                  <RotateCcw size={14} />
+                </motion.div>
+                正在处理...
+              </>
+            ) : (
+              <>
+                <Download size={14} />
+                导出图片
+              </>
+            )}
           </button>
         </div>
       </header>
+
+      {/* Export Progress Overlay */}
+      <AnimatePresence>
+        {isExporting && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center p-8"
+          >
+            <div className="w-full max-w-md">
+              <div className="flex justify-between items-end mb-4">
+                <div>
+                  <h2 className="text-2xl font-black tracking-tighter">正在导出</h2>
+                  <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest mt-1">
+                    {exportProgress < 40 ? '阶段 1: 合成画布渲染' : '阶段 2: 智能压缩与优化'}
+                  </p>
+                </div>
+                <span className="text-sm font-mono font-bold">{Math.round(exportProgress)}%</span>
+              </div>
+              <div className="h-2 w-full bg-zinc-100 rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-black"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${exportProgress}%` }}
+                  transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
+                />
+              </div>
+              <p className="mt-6 text-[10px] text-zinc-400 text-center font-bold uppercase tracking-[0.2em]">
+                请勿关闭窗口，正在为您生成高分辨率 JPG 资产
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="flex-1 flex overflow-hidden">
         {/* Canvas Section - Fully centered now */}
