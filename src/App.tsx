@@ -125,6 +125,7 @@ export default function App() {
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+  const [exportFormat, setExportFormat] = useState<'JPG' | 'PNG'>('JPG');
 
   const handleReset = () => {
     if (confirm('确定要清空所有已上传的图片吗？')) {
@@ -132,9 +133,10 @@ export default function App() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = async (format: 'JPG' | 'PNG') => {
     try {
       setIsExporting(true);
+      setExportFormat(format);
       setExportProgress(5);
       
       const canvas = document.createElement('canvas');
@@ -196,51 +198,59 @@ export default function App() {
         setExportProgress(5 + ((i + 1) / images.length) * 35);
       }
 
-      // Stage 2: Compression (40% - 95%)
-      const minSize = 13 * 1024 * 1024;
-      const maxSize = 15 * 1024 * 1024;
-      
       let finalBlob: Blob | null = null;
-      let q = 0.95;
-      let low = 0.0;
-      let high = 1.0;
-      const maxIterations = 8;
 
-      for (let i = 0; i < maxIterations; i++) {
-        const blob: Blob = await new Promise((resolve) => {
-          canvas.toBlob((b) => resolve(b!), 'image/jpeg', q);
-        });
+      if (format === 'JPG') {
+        // Stage 2: Iterative Compression for JPG (40% - 95%)
+        const minSize = 13 * 1024 * 1024;
+        const maxSize = 15 * 1024 * 1024;
+        
+        let q = 0.95;
+        let low = 0.0;
+        let high = 1.0;
+        const maxIterations = 8;
 
-        if (blob.size > maxSize) {
-          high = q;
-        } else {
-          finalBlob = blob;
-          if (blob.size >= minSize) break;
-          low = q;
+        for (let i = 0; i < maxIterations; i++) {
+          const blob: Blob = await new Promise((resolve) => {
+            canvas.toBlob((b) => resolve(b!), 'image/jpeg', q);
+          });
+
+          if (blob.size > maxSize) {
+            high = q;
+          } else {
+            finalBlob = blob;
+            if (blob.size >= minSize) break;
+            low = q;
+          }
+          q = (low + high) / 2;
+          setExportProgress(40 + ((i + 1) / maxIterations) * 55);
+          if (high - low < 0.005) break;
         }
-        q = (low + high) / 2;
-        setExportProgress(40 + ((i + 1) / maxIterations) * 55);
-        if (high - low < 0.005) break;
-      }
 
-      if (finalBlob && finalBlob.size < minSize && high === 1.0) {
-        const maxBlob: Blob = await new Promise((resolve) => {
-          canvas.toBlob((b) => resolve(b!), 'image/jpeg', 1.0);
+        if (finalBlob && finalBlob.size < minSize && high === 1.0) {
+          const maxBlob: Blob = await new Promise((resolve) => {
+            canvas.toBlob((b) => resolve(b!), 'image/jpeg', 1.0);
+          });
+          if (maxBlob.size <= maxSize) finalBlob = maxBlob;
+        }
+      } else {
+        // PNG Export: No compression needed (95%)
+        setExportProgress(70);
+        finalBlob = await new Promise((resolve) => {
+          canvas.toBlob((b) => resolve(b!), 'image/png');
         });
-        if (maxBlob.size <= maxSize) finalBlob = maxBlob;
       }
 
       setExportProgress(100);
       if (!finalBlob) throw new Error('Could not generate image');
 
       const link = document.createElement('a');
-      link.download = `stitch_${new Date().getTime()}.jpg`;
+      link.download = `stitch_${new Date().getTime()}.${format.toLowerCase()}`;
       const url = URL.createObjectURL(finalBlob);
       link.href = url;
       link.click();
       URL.revokeObjectURL(url);
       
-      // Delay closing progress UI
       setTimeout(() => {
         setIsExporting(false);
         setExportProgress(0);
@@ -274,12 +284,24 @@ export default function App() {
             <RotateCcw size={14} />
             清空画布
           </button>
+
+          {/* PNG Export Button */}
           <button 
-            className="px-6 py-2 bg-black text-white text-sm font-semibold rounded-full hover:bg-zinc-800 transition-colors shadow-lg active:scale-95 flex items-center gap-2 disabled:bg-zinc-400 disabled:pointer-events-none"
-            onClick={handleExport}
+            className="px-6 py-2 border border-black text-black text-sm font-semibold rounded-full hover:bg-zinc-50 transition-colors active:scale-95 flex items-center gap-2 disabled:opacity-30 disabled:pointer-events-none"
+            onClick={() => handleExport('PNG')}
             disabled={isExporting}
           >
-            {isExporting ? (
+            <Download size={14} />
+            导出 PNG (原始)
+          </button>
+
+          {/* JPG Export Button */}
+          <button 
+            className="px-6 py-2 bg-black text-white text-sm font-semibold rounded-full hover:bg-zinc-800 transition-colors shadow-lg active:scale-95 flex items-center gap-2 disabled:bg-zinc-400 disabled:pointer-events-none"
+            onClick={() => handleExport('JPG')}
+            disabled={isExporting}
+          >
+            {isExporting && exportFormat === 'JPG' ? (
               <>
                 <motion.div
                   animate={{ rotate: 360 }}
@@ -292,7 +314,7 @@ export default function App() {
             ) : (
               <>
                 <Download size={14} />
-                导出图片
+                导出 JPG (压缩)
               </>
             )}
           </button>
@@ -311,9 +333,11 @@ export default function App() {
             <div className="w-full max-w-md">
               <div className="flex justify-between items-end mb-4">
                 <div>
-                  <h2 className="text-2xl font-black tracking-tighter">正在导出</h2>
+                  <h2 className="text-2xl font-black tracking-tighter">正在导出 {exportFormat}</h2>
                   <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest mt-1">
-                    {exportProgress < 40 ? '阶段 1: 合成画布渲染' : '阶段 2: 智能压缩与优化'}
+                    {exportFormat === 'JPG' 
+                      ? (exportProgress < 40 ? '阶段 1: 合成画布渲染' : '阶段 2: 智能压缩与优化')
+                      : '阶段 1: 正在生成无损 PNG 资产'}
                   </p>
                 </div>
                 <span className="text-sm font-mono font-bold">{Math.round(exportProgress)}%</span>
