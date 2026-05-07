@@ -193,11 +193,49 @@ export default function App() {
         }
       }
 
+      // Iterative Compression Logic for JPEG (Target: 13MB - 15MB)
+      const minSize = 13 * 1024 * 1024; // 13MB
+      const maxSize = 15 * 1024 * 1024; // 15MB
+      
+      let finalBlob: Blob | null = null;
+      let q = 0.95;
+      let low = 0.0;
+      let high = 1.0;
+
+      // Binary search for optimal quality
+      for (let i = 0; i < 10; i++) {
+        const blob: Blob = await new Promise((resolve) => {
+          canvas.toBlob((b) => resolve(b!), 'image/jpeg', q);
+        });
+
+        if (blob.size > maxSize) {
+          high = q;
+        } else {
+          finalBlob = blob;
+          if (blob.size >= minSize) break; // Found perfect range
+          low = q;
+        }
+        q = (low + high) / 2;
+        if (high - low < 0.01) break;
+      }
+
+      // Final attempt at max quality if still under limit
+      if (finalBlob && finalBlob.size < minSize && high === 1.0) {
+        const maxBlob: Blob = await new Promise((resolve) => {
+          canvas.toBlob((b) => resolve(b!), 'image/jpeg', 1.0);
+        });
+        if (maxBlob.size <= maxSize) finalBlob = maxBlob;
+      }
+
+      if (!finalBlob) throw new Error('Could not generate image');
+
       // Download
       const link = document.createElement('a');
-      link.download = `collage_${new Date().getTime()}.png`;
-      link.href = canvas.toDataURL('image/png', 1.0);
+      link.download = `collage_${new Date().getTime()}.jpg`;
+      const url = URL.createObjectURL(finalBlob);
+      link.href = url;
       link.click();
+      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Export failed:', error);
       alert('导出失败，请重试');
