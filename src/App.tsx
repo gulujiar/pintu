@@ -140,8 +140,8 @@ export default function App() {
       setExportProgress(5);
       
       const canvas = document.createElement('canvas');
-      canvas.width = 6480;
-      canvas.height = 3840;
+      canvas.width = 3645;
+      canvas.height = 2160;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -149,7 +149,7 @@ export default function App() {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      const unit = 240; // 6480 / 27 = 240
+      const unit = 135; // 3645 / 27 = 135
       
       const cells = [
         { x: 0, y: 0, w: 9, h: 16 },
@@ -428,7 +428,7 @@ export default function App() {
         <div className="flex items-center gap-4 text-[10px] text-[#999] font-medium uppercase tracking-widest leading-none">
           <span>状态：准备就绪</span>
           <span className="w-1 h-1 bg-[#CCC] rounded-full"></span>
-          <span>输出尺寸：6480 x 3840px</span>
+          <span>输出尺寸：3645 x 2160px</span>
         </div>
         <div className="flex items-center gap-4">
           <span className="text-[10px] text-[#999] font-bold tracking-widest">GRID_STITCH_V1.0</span>
